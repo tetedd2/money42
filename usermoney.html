@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>สถานะบัญชี</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Kanit', sans-serif;
+            padding: 20px;
+            background: #f4f7f6;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+        h1, h2 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        h2.total-summary {
+            padding: 10px;
+            background-color: #2c3e50;
+            color: white;
+            border-radius: 6px;
+            margin-top: -10px;
+        }
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+        li {
+            padding: 12px;
+            margin-bottom: 6px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+        .paid li {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .unpaid li {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .date-box {
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: bold;
+            color: #636e72;
+            font-size: 1.1em;
+        }
+        .admin-link {
+            text-align: center;
+            margin: 25px 0 10px;
+        }
+        .admin-link a {
+            color: #3498db;
+            text-decoration: none;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>📋 สถานะบัญชีวันนี้</h1>
+        <div class="date-box" id="todayDate"></div>
+        <h2 id="totalAllTime" class="total-summary">ยอดรวมทั้งหมด: 0 บาท</h2>
+        
+        <h2>✅ จ่ายแล้ว (สำหรับวันนี้)</h2>
+        <ul id="paidList" class="paid"></ul>
+        
+        <h2>❌ ยังไม่จ่าย (สำหรับวันนี้)</h2>
+        <ul id="unpaidList" class="unpaid"></ul>
+
+        <div class="admin-link">
+            <a href="admin.html">สำหรับผู้ดูแลระบบ</a>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getFirestore, collection, getDocs, query, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDZTNCpLEYKL5u4cTpvJiAsiUjsZmAFnzU",
+            authDomain: "money42-cfb13.firebaseapp.com",
+            projectId: "money42-cfb13",
+            storageBucket: "money42-cfb13.appspot.com",
+            messagingSenderId: "304737213119",
+            appId: "1:304737213119:web:25dc15f0189e8960d1040a"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        const paidList = document.getElementById('paidList');
+        const unpaidList = document.getElementById('unpaidList');
+        const todayDateEl = document.getElementById('todayDate');
+        const totalAllTimeEl = document.getElementById('totalAllTime');
+
+        function setupPublicViewListener() {
+            const today = new Date().toISOString().slice(0, 10);
+            todayDateEl.textContent = `ประจำวันที่ ${today}`;
+            
+            const allPaymentsQuery = query(collection(db, "payments"));
+            
+            onSnapshot(allPaymentsQuery, async (paymentSnapshot) => {
+                const allPaymentsData = paymentSnapshot.docs.map(doc => doc.data());
+
+                const grandTotalAmount = allPaymentsData.reduce((sum, payment) => sum + payment.amount, 0);
+                totalAllTimeEl.textContent = `ยอดรวมทั้งหมด: ${grandTotalAmount.toLocaleString('th-TH')} บาท`;
+
+                const allTimeUserTotals = new Map();
+                allPaymentsData.forEach(payment => {
+                    const currentTotal = allTimeUserTotals.get(payment.nickname) || 0;
+                    allTimeUserTotals.set(payment.nickname, currentTotal + payment.amount);
+                });
+
+                const todayPayments = allPaymentsData.filter(p => p.date === today);
+                const paidNicknamesForToday = new Set(todayPayments.map(p => p.nickname));
+                
+                const userSnapshot = await getDocs(collection(db, "users"));
+                const allNicknames = userSnapshot.docs.map(doc => doc.data().nickname).filter(Boolean).sort((a, b) => a.localeCompare(b, 'th'));
+
+                paidList.innerHTML = "<li>กำลังโหลด...</li>";
+                unpaidList.innerHTML = "<li>กำลังโหลด...</li>";
+
+                paidList.innerHTML = "";
+                unpaidList.innerHTML = "";
+                
+                if (allNicknames.length === 0) {
+                    unpaidList.innerHTML = "<li>ยังไม่มีข้อมูลผู้ใช้ในระบบ</li>";
+                    return;
+                }
+
+                allNicknames.forEach(nickname => {
+                    const li = document.createElement("li");
+                    if (paidNicknamesForToday.has(nickname)) {
+                        const totalAmountPaid = allTimeUserTotals.get(nickname) || 0;
+                        li.textContent = `${nickname} (ยอดรวม: ${totalAmountPaid.toLocaleString('th-TH')} บาท)`;
+                        paidList.appendChild(li);
+                    } else {
+                        li.textContent = nickname;
+                        unpaidList.appendChild(li);
+                    }
+                });
+                
+                if (paidList.children.length === 0) {
+                    paidList.innerHTML = "<li>ยังไม่มีผู้จ่าย</li>";
+                }
+            }, (error) => {
+                console.error("Realtime listener failed:", error);
+                unpaidList.innerHTML = "<li>เกิดข้อผิดพลาดในการโหลดข้อมูล</li>";
+            });
+        }
+        
+        setupPublicViewListener();
+    </script>
+</body>
+</html>
