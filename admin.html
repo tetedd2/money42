@@ -58,15 +58,17 @@
         button.logout:hover {
             background: #c0392b;
         }
-        #error {
+        #login-error {
             color: #e74c3c;
             text-align: center;
             margin-top: 10px;
         }
-        #success {
+        #form-message {
              color: #2ecc71;
              text-align: center;
              margin-top: 10px;
+             font-weight: bold;
+             min-height: 1.2em;
         }
         .view {
             display: none; /* Hide views by default */
@@ -93,7 +95,7 @@
                 <input type="password" id="password" placeholder="รหัสผ่าน" required />
                 <button type="submit">เข้าสู่ระบบ</button>
             </form>
-            <p id="error"></p>
+            <p id="login-error"></p>
             <div class="user-link">
                 <a href="usermoney.html">กลับไปหน้าหลัก</a>
             </div>
@@ -112,15 +114,17 @@
                 <input type="number" id="amount" min="1" required>
                 <button type="submit">บันทึกข้อมูล</button>
             </form>
-            <p id="success"></p>
+            <p id="form-message"></p>
         </div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getFirestore, collection, getDocs, addDoc, query, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+        // --- Firebase Configuration ---
+        // IMPORTANT: Replace with your actual Firebase project config
         const firebaseConfig = {
             apiKey: "AIzaSyDZTNCpLEYKL5u4cTpvJiAsiUjsZmAFnzU",
             authDomain: "money42-cfb13.firebaseapp.com",
@@ -131,20 +135,23 @@
         };
         const ADMIN_EMAIL = "admin@example.com";
 
+        // --- Firebase Initialization ---
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
 
+        // --- Element References ---
         const loginView = document.getElementById('login-view');
         const adminDashboardView = document.getElementById('admin-dashboard-view');
         const adminLoginForm = document.getElementById('adminLoginForm');
-        const errorEl = document.getElementById('error');
-        const successEl = document.getElementById('success');
+        const loginErrorEl = document.getElementById('login-error');
+        const formMessageEl = document.getElementById('form-message');
         const adminLogoutBtn = document.getElementById('adminLogoutBtn');
         const adminForm = document.getElementById('adminForm');
         const nicknameSelect = document.getElementById('nickname');
         const amountInput = document.getElementById('amount');
 
+        // --- Authentication State Change ---
         onAuthStateChanged(auth, (user) => {
             if (user && user.email === ADMIN_EMAIL) {
                 loginView.style.display = 'none';
@@ -156,26 +163,29 @@
             }
         });
 
+        // --- Admin Login ---
         adminLoginForm.addEventListener("submit", async (e) => {
             e.preventDefault();
             const email = document.getElementById("email").value;
             const password = document.getElementById("password").value;
-            errorEl.textContent = "";
+            loginErrorEl.textContent = "";
             try {
                 const userCredential = await signInWithEmailAndPassword(auth, email, password);
                 if (userCredential.user.email !== ADMIN_EMAIL) {
-                    await signOut(auth);
-                    errorEl.textContent = "❌ คุณไม่ใช่ผู้ดูแลระบบ";
+                    await signOut(auth); // Sign out if not an admin
+                    loginErrorEl.textContent = "❌ คุณไม่ใช่ผู้ดูแลระบบ";
                 }
             } catch (err) {
-                errorEl.textContent = "❌ อีเมลหรือรหัสผ่านไม่ถูกต้อง";
+                loginErrorEl.textContent = "❌ อีเมลหรือรหัสผ่านไม่ถูกต้อง";
             }
         });
 
+        // --- Admin Logout ---
         adminLogoutBtn.addEventListener('click', () => {
             signOut(auth);
         });
 
+        // --- Load Users into Select Dropdown ---
         async function loadUsersIntoSelect() {
             try {
                 const userSnapshot = await getDocs(collection(db, "users"));
@@ -193,35 +203,48 @@
             }
         }
 
+        // --- Handle Admin Form Submission (Add Payment) ---
         adminForm.addEventListener("submit", async (e) => {
             e.preventDefault();
             const nickname = nicknameSelect.value;
             const amount = parseFloat(amountInput.value);
 
+            // Clear previous message
+            formMessageEl.textContent = "";
+            formMessageEl.style.color = "";
+
             if (!nickname || isNaN(amount) || amount <= 0) {
-                alert("กรุณาเลือกบัญชีและกรอกจำนวนเงินให้ถูกต้อง");
+                formMessageEl.textContent = "กรุณาเลือกบัญชีและกรอกจำนวนเงินให้ถูกต้อง";
+                formMessageEl.style.color = "#e74c3c"; // Red for error
                 return;
             }
+
             const date = new Date().toISOString().slice(0, 10);
-            successEl.textContent = "กำลังบันทึก...";
+            formMessageEl.textContent = "กำลังบันทึก...";
+            formMessageEl.style.color = "#333"; // Neutral color
 
             try {
-                const q = query(collection(db, "payments"), where("date", "==", date), where("nickname", "==", nickname));
-                const existingPayment = await getDocs(q);
+                // The check for existing payment has been removed to allow multiple entries.
+                await addDoc(collection(db, "payments"), {
+                    nickname: nickname,
+                    amount: amount,
+                    date: date,
+                    timestamp: new Date()
+                });
 
-                if (!existingPayment.empty) {
-                     alert(`⚠️ ${nickname} มีการบันทึกข้อมูลสำหรับวันนี้แล้ว`);
-                     successEl.textContent = "";
-                     return;
-                }
+                formMessageEl.textContent = `✅ บันทึกข้อมูลของ ${nickname} จำนวน ${amount.toLocaleString('th-TH')} บาท เรียบร้อย!`;
+                formMessageEl.style.color = "#2ecc71"; // Green for success
+                adminForm.reset(); // Reset form for the next entry
+                
+                // Automatically clear the success message after a few seconds
+                setTimeout(() => {
+                    formMessageEl.textContent = "";
+                }, 4000);
 
-                await addDoc(collection(db, "payments"), { nickname, amount, date, timestamp: new Date() });
-                successEl.textContent = `✅ บันทึกข้อมูลของ ${nickname} เรียบร้อย!`;
-                adminForm.reset();
-                setTimeout(() => { successEl.textContent = "" }, 3000);
             } catch (error) {
                 console.error("Failed to save payment:", error);
-                successEl.textContent = "❌ เกิดข้อผิดพลาด: " + error.message;
+                formMessageEl.textContent = "❌ เกิดข้อผิดพลาดในการบันทึก: " + error.message;
+                formMessageEl.style.color = "#e74c3c"; // Red for error
             }
         });
     </script>
